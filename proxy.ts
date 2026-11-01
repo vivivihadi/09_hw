@@ -36,7 +36,7 @@ const cookieArray = Array.isArray(setCookie)
 for (const cookieStr of cookieArray) {
 const parsed = parseSetCookie(cookieStr);
 
-if (parsed) {
+if (parsed && parsed.name && parsed.value !== undefined) {
 response.cookies.set({
 name: parsed.name,
 value: parsed.value,
