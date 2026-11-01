@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseSetCookie } from 'cookie';
+import { parseCookie, parseSetCookie } from 'cookie';
 import { checkServerSession } from './lib/api/serverApi';
 
 const privateRoutes = ['/profile', '/notes'];
@@ -8,8 +8,13 @@ const publicRoutes = ['/sign-in', '/sign-up'];
 export async function proxy(request: NextRequest) {
 const { pathname } = request.nextUrl;
 
-const accessToken = request.cookies.get('accessToken')?.value;
-const refreshToken = request.cookies.get('refreshToken')?.value;
+// Отримуємо cookies із заголовка запиту
+const requestCookies = parseCookie(
+request.headers.get('cookie') ?? '',
+);
+
+let accessToken = requestCookies.accessToken;
+const refreshToken = requestCookies.refreshToken;
 
 const isPublicRoute = publicRoutes.some((route) =>
 pathname.startsWith(route),
@@ -19,24 +24,59 @@ const isPrivateRoute = privateRoutes.some((route) =>
 pathname.startsWith(route),
 );
 
+let newCookies: ReturnType<typeof parseSetCookie>[] = [];
+
+// Оновлюємо сесію, якщо accessToken відсутній,
+// але refreshToken існує
 if (!accessToken && refreshToken) {
 try {
-const data = await checkServerSession();
+const data = await checkServerSession(
+request.headers.get('cookie') ?? '',
+);
+
 const setCookie = data.headers['set-cookie'];
 
 if (setCookie) {
-const response = isPublicRoute
-? NextResponse.redirect(new URL('/', request.url))
-: NextResponse.next();
-
 const cookieArray = Array.isArray(setCookie)
 ? setCookie
 : [setCookie];
 
-for (const cookieStr of cookieArray) {
-const parsed = parseSetCookie(cookieStr);
+newCookies = cookieArray.map((cookie) =>
+parseSetCookie(cookie),
+);
 
-if (parsed && parsed.name && parsed.value !== undefined) {
+const newAccessCookie = newCookies.find(
+(cookie) => cookie.name === 'accessToken',
+);
+
+if (newAccessCookie?.value) {
+accessToken = newAccessCookie.value;
+}
+}
+} catch {
+// Якщо оновити сесію не вдалося,
+// користувач залишається неавторизованим.
+}
+}
+
+// Визначаємо перенаправлення
+let response: NextResponse;
+
+if (!accessToken && isPrivateRoute) {
+response = NextResponse.redirect(
+new URL('/sign-in', request.url),
+);
+} else if (accessToken && isPublicRoute) {
+response = NextResponse.redirect(
+new URL('/', request.url),
+);
+} else {
+response = NextResponse.next();
+}
+
+// Записуємо оновлені cookies у відповідь
+for (const parsed of newCookies) {
+if (parsed.name && parsed.value !== undefined) {
 response.cookies.set({
 name: parsed.name,
 value: parsed.value,
@@ -52,27 +92,12 @@ sameSite: parsed.sameSite,
 
 return response;
 }
-} catch {
-// Якщо оновити сесію не вдалося, користувач залишиться неавторизованим.
-}
-}
-
-if (!accessToken) {
-if (isPrivateRoute) {
-return NextResponse.redirect(new URL('/sign-in', request.url));
-}
-
-return NextResponse.next();
-}
-
-if (isPublicRoute) {
-return NextResponse.redirect(new URL('/', request.url));
-}
-
-return NextResponse.next();
-}
 
 export const config = {
-matcher: ['/profile/:path*', '/sign-in', '/sign-up', '/notes/:path*'],
+matcher: [
+'/profile/:path*',
+'/sign-in',
+'/sign-up',
+'/notes/:path*',
+],
 };
-
