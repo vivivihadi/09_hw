@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { parseCookie, parseSetCookie } from 'cookie';
+import { cookies } from 'next/headers';
+import { parseSetCookie } from 'cookie';
 import { checkServerSession } from './lib/api/serverApi';
 
 const privateRoutes = ['/profile', '/notes'];
@@ -8,13 +9,16 @@ const publicRoutes = ['/sign-in', '/sign-up'];
 export async function proxy(request: NextRequest) {
 const { pathname } = request.nextUrl;
 
-// Отримуємо cookies із заголовка запиту
-const requestCookies = parseCookie(
-request.headers.get('cookie') ?? '',
-);
+// Отримуємо cookies через next/headers
+const cookieStore = await cookies().catch(() => null);
 
-let accessToken = requestCookies.accessToken;
-const refreshToken = requestCookies.refreshToken;
+let accessToken =
+cookieStore?.get('accessToken')?.value ??
+request.cookies.get('accessToken')?.value;
+
+const refreshToken =
+cookieStore?.get('refreshToken')?.value ??
+request.cookies.get('refreshToken')?.value;
 
 const isPublicRoute = publicRoutes.some((route) =>
 pathname.startsWith(route),
@@ -26,8 +30,6 @@ pathname.startsWith(route),
 
 let newCookies: ReturnType<typeof parseSetCookie>[] = [];
 
-// Оновлюємо сесію, якщо accessToken відсутній,
-// але refreshToken існує
 if (!accessToken && refreshToken) {
 try {
 const data = await checkServerSession(
@@ -59,7 +61,6 @@ accessToken = newAccessCookie.value;
 }
 }
 
-// Визначаємо перенаправлення
 let response: NextResponse;
 
 if (!accessToken && isPrivateRoute) {
@@ -67,14 +68,11 @@ response = NextResponse.redirect(
 new URL('/sign-in', request.url),
 );
 } else if (accessToken && isPublicRoute) {
-response = NextResponse.redirect(
-new URL('/', request.url),
-);
+response = NextResponse.redirect(new URL('/', request.url));
 } else {
 response = NextResponse.next();
 }
 
-// Записуємо оновлені cookies у відповідь
 for (const parsed of newCookies) {
 if (parsed.name && parsed.value !== undefined) {
 response.cookies.set({
