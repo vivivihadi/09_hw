@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { api } from "../../api";
-import { parseCookie } from "cookie";
+import { parseSetCookie } from "cookie";
 import { isAxiosError } from "axios";
 import { logErrorResponse } from "../../_utils/utils";
 
@@ -27,7 +27,7 @@ export async function GET() {
       if (setCookie) {
         const cookieArray = Array.isArray(setCookie) ? setCookie : [setCookie];
         for (const cookieStr of cookieArray) {
-          const parsed = parseCookie(cookieStr);
+          const parsed = parseSetCookie(cookieStr);
 
           const options = {
             expires: parsed.Expires ? new Date(parsed.Expires) : undefined,
